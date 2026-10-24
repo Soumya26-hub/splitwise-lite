@@ -14,9 +14,27 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <section id="signin-screen" class="signin-screen" hidden>
+    <form id="signin-form" class="panel">
+      <p class="eyebrow">Splitwise Lite</p>
+      <h1>Sign in</h1>
+      <p class="hint">Use the name your friends know you by. Your phone number keeps your account the same on every device.</p>
+      <label>
+        Your name
+        <input id="signin-name" type="text" autocomplete="name" required>
+      </label>
+      <label>
+        Phone number
+        <input id="signin-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210" required>
+      </label>
+      <p id="signin-error" class="signin-error" role="alert"></p>
+      <button type="submit" class="primary-button">Continue</button>
+    </form>
+  </section>
+
   <header class="app-header">
     <div class="header-row">
-      <p class="eyebrow">Splitwise Lite</p>
+      <p class="eyebrow">Splitwise Lite · <span id="user-name"></span> <button id="signout-btn" class="link-button" type="button">Sign out</button></p>
       <button id="new-group-btn" class="text-button" type="button">+ New group</button>
     </div>
     <label class="group-picker">
@@ -82,8 +100,9 @@
         <input id="member-name" type="text" placeholder="Add a friend" required>
         <button type="submit" class="primary-button">Add</button>
       </form>
+      <p class="hint">Friends join by opening the invite link and signing in with the same name you added them as.</p>
       <ul id="member-list" class="card-list"></ul>
-      <button id="share-group-btn" class="secondary-wide-button" type="button">📣 Tell members about this group</button>
+      <button id="share-group-btn" class="secondary-wide-button" type="button">📣 Share invite link</button>
       <button id="delete-group-btn" class="danger-button" type="button">Delete this group</button>
     </section>
   </main>

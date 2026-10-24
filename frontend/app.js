@@ -16,6 +16,28 @@ const groupDialog = document.querySelector("#group-dialog");
 const groupForm = document.querySelector("#group-form");
 
 const LAST_GROUP_KEY = "splitwise-lite:last-group";
+const SESSION_KEY = "splitwise-lite:session";
+
+// {token, user} from POST /auth/signin, kept on this device.
+let session = loadSession();
+
+function loadSession() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(value) {
+  session = value;
+  try {
+    if (value) localStorage.setItem(SESSION_KEY, JSON.stringify(value));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // Without storage the user simply signs in again next visit.
+  }
+}
 
 // The group currently on screen, as returned by GET /groups/{id}.
 let currentGroup = null;
@@ -55,12 +77,15 @@ async function getErrorMessage(response) {
 async function api(path, options = {}) {
   let response;
   try {
-    response = await fetch(path, {
-      headers: { "Content-Type": "application/json" },
-      ...options,
-    });
+    const headers = { "Content-Type": "application/json" };
+    if (session) headers.Authorization = `Bearer ${session.token}`;
+    response = await fetch(path, { headers, ...options });
   } catch {
     throw new Error("You appear to be offline. Check your connection and try again.");
+  }
+  if (response.status === 401) {
+    showSignIn();
+    throw new Error("Please sign in.");
   }
   if (!response.ok) {
     throw new Error(await getErrorMessage(response));
@@ -313,9 +338,8 @@ function renderExpenseForm() {
       return option;
     }),
   );
-  if (members.some((member) => member.id === previousPayer)) {
-    expensePaidBy.value = previousPayer;
-  }
+  // Default the payer to you; keep a different choice when the form re-renders.
+  expensePaidBy.value = members.some((member) => member.id === previousPayer) ? previousPayer : currentGroup.my_member_id;
 
   splitOptions.replaceChildren(
     ...members.map((member) => {
@@ -438,7 +462,7 @@ function renderActivity(expenses, settlements) {
 
 const STATUS_LABELS = { accepted: "✓ Accepted", rejected: "✕ Rejected" };
 
-// Who is in a split, what each owes, and Accept/Reject for anyone who hasn't answered yet.
+// Who is in a split, what each owes, and Accept/Reject on your own share if you haven't answered.
 function createSplitMembers(expense) {
   const list = createElement("ul", "split-members");
   for (const share of expense.shares) {
@@ -450,6 +474,8 @@ function createSplitMembers(expense) {
     // Pending rows show their Accept/Reject buttons instead of a badge, so they fit on one line.
     if (share.status !== "pending") {
       item.append(createElement("span", `status-badge ${share.status}`, STATUS_LABELS[share.status]));
+    } else if (share.member_id !== currentGroup.my_member_id) {
+      item.append(createElement("span", "status-badge pending", "⏳ Waiting"));
     } else {
       for (const [label, decision] of [["Accept", "accept"], ["Reject", "reject"]]) {
         const button = createButton(label, "respond", expense.id, `mini-button ${decision}`);
@@ -469,20 +495,20 @@ function expenseMessage(expense) {
   const lines = expense.shares
     .filter((share) => share.status !== "rejected")
     .map((share) => `• ${memberName(share.member_id)}: ${formatMoney(share.amount)}`);
-  return `New expense in "${currentGroup.name}": ${expense.description} ${formatMoney(expense.amount)}, paid by ${memberName(expense.paid_by_id)}.\n${lines.join("\n")}\nPlease open Splitwise Lite to accept or reject your share.`;
+  return `New expense in "${currentGroup.name}": ${expense.description} ${formatMoney(expense.amount)}, paid by ${memberName(expense.paid_by_id)}.\n${lines.join("\n")}\nAccept or reject your share here: ${inviteLink()}`;
 }
 
 async function respondToShare(button) {
   const expense = expensesById.get(Number(button.dataset.id));
   const memberId = Number(button.dataset.member);
   const rejecting = button.dataset.decision === "reject";
-  if (rejecting && !confirm(`Remove ${memberName(memberId)} from "${expense.description}"? The cost will be split between the others.`)) {
+  if (rejecting && !confirm(`Leave "${expense.description}"? The cost will be split between the others.`)) {
     return;
   }
   try {
     const updated = await api(`/groups/${currentGroup.id}/expenses/${expense.id}/respond`, {
       method: "POST",
-      body: JSON.stringify({ member_id: memberId, decision: button.dataset.decision }),
+      body: JSON.stringify({ decision: button.dataset.decision }),
     });
     showToast(rejecting ? "Rejected, cost re-split" : "Share accepted");
     await refresh();
@@ -532,11 +558,13 @@ function renderMembers() {
   memberList.replaceChildren(
     ...currentGroup.members.map((member) => {
       const row = createElement("li", "card member-row");
+      const isMe = member.id === currentGroup.my_member_id;
       row.append(
         createElement("span", "avatar", member.name.charAt(0).toUpperCase()),
-        createElement("span", "row-title", member.name),
-        createButton("Remove", "remove-member", member.id, "small-button secondary"),
+        createElement("span", "row-title", isMe ? `${member.name} (you)` : member.name),
+        createElement("span", `status-badge ${member.joined ? "accepted" : "pending"}`, member.joined ? "Joined" : "Invited"),
       );
+      if (!isMe) row.append(createButton("Remove", "remove-member", member.id, "small-button secondary"));
       return row;
     }),
   );
@@ -576,7 +604,7 @@ document.querySelector("#share-group-btn").addEventListener("click", () => {
   if (!currentGroup) return;
   const names = currentGroup.members.map((member) => member.name).join(", ");
   shareMessage(
-    `You've been added to "${currentGroup.name}" on Splitwise Lite with ${names}. We'll track shared expenses there and settle up at the end.`,
+    `You've been added to "${currentGroup.name}" on Splitwise Lite with ${names}. Join here: ${inviteLink()}`,
   );
 });
 
@@ -634,6 +662,62 @@ groupSelect.addEventListener("change", async () => {
   }
 });
 
+// Sign in and invite links
+
+const signinScreen = document.querySelector("#signin-screen");
+const signinError = document.querySelector("#signin-error");
+
+function inviteLink() {
+  return `${location.origin}/?join=${currentGroup.invite_code}`;
+}
+
+function showSignIn() {
+  saveSession(null);
+  signinScreen.hidden = false;
+}
+
+document.querySelector("#signin-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  signinError.textContent = "";
+  try {
+    saveSession(
+      await api("/auth/signin", {
+        method: "POST",
+        body: JSON.stringify({
+          name: document.querySelector("#signin-name").value,
+          phone: document.querySelector("#signin-phone").value,
+        }),
+      }),
+    );
+    signinScreen.hidden = true;
+    await start();
+  } catch (error) {
+    signinError.textContent = error.message;
+  }
+});
+
+document.querySelector("#signout-btn").addEventListener("click", () => {
+  if (confirm("Sign out of Splitwise Lite on this device?")) showSignIn();
+});
+
+async function start() {
+  document.querySelector("#user-name").textContent = session.user.name;
+  const inviteCode = new URLSearchParams(location.search).get("join");
+  let joinedGroupId = null;
+  if (inviteCode) {
+    // Drop ?join= from the address bar so a refresh does not try to join again.
+    history.replaceState(null, "", "/");
+    try {
+      const group = await api(`/groups/join/${encodeURIComponent(inviteCode)}`, { method: "POST" });
+      joinedGroupId = group.id;
+      showToast(`Joined ${group.name}`);
+    } catch (error) {
+      showError(error.message);
+    }
+  }
+  await loadGroups(joinedGroupId);
+}
+
 // Start up
 
 if ("serviceWorker" in navigator) {
@@ -642,4 +726,8 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-loadGroups().catch((error) => showError(error.message));
+if (session) {
+  start().catch((error) => showError(error.message));
+} else {
+  signinScreen.hidden = false;
+}

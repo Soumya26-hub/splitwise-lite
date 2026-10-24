@@ -10,20 +10,20 @@ os.environ["DATABASE_URL"] = f"sqlite:///{(Path(_test_db_dir) / 'test.db').as_po
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from backend.database import Base, SessionLocal, engine  # noqa: E402
+from backend.database import Base, engine  # noqa: E402
 from backend.main import app  # noqa: E402
-from backend.seed_data import seed_if_empty  # noqa: E402
+
+
+def sign_in(test_client, name, phone):
+    token = test_client.post("/auth/signin", json={"name": name, "phone": phone}).json()["token"]
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
 def client():
-    # Fresh, re-seeded tables for every test.
+    # Fresh tables for every test; the client is signed in as Asha by default.
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    try:
-        seed_if_empty(db)
-    finally:
-        db.close()
     with TestClient(app) as test_client:
+        test_client.headers.update(sign_in(test_client, "Asha", "9000000001"))
         yield test_client

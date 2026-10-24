@@ -1,5 +1,7 @@
 import pytest
 
+from backend.tests.conftest import sign_in
+
 
 @pytest.fixture
 def group(client):
@@ -63,23 +65,16 @@ def test_invalid_expenses_rejected(client, group):
     assert add_expense(client, group, split_between=[]).status_code == 422
     assert add_expense(client, group, split_between=[asha, asha]).status_code == 422
     # Members from another group are not allowed.
-    assert add_expense(client, group, paid_by_id=1).status_code == 422
-    assert add_expense(client, group, split_between=[asha, 1]).status_code == 422
-
-
-def test_expense_needs_members(client):
-    empty = client.post("/groups/", json={"name": "Empty"}).json()
-    response = client.post(
-        f"/groups/{empty['id']}/expenses", json={"description": "Tea", "amount": 10, "paid_by_id": 1}
-    )
-    assert response.status_code == 422
+    outsider = client.post("/groups/", json={"name": "Other", "members": ["Zed"]}).json()["members"][0]["id"]
+    assert add_expense(client, group, paid_by_id=outsider).status_code == 422
+    assert add_expense(client, group, split_between=[asha, outsider]).status_code == 422
 
 
 def test_settlement_validation(client, group):
     asha, ben, _ = member_ids(group)
     url = f"/groups/{group['id']}/settlements"
     assert client.post(url, json={"from_member_id": asha, "to_member_id": asha, "amount": 5}).status_code == 422
-    assert client.post(url, json={"from_member_id": asha, "to_member_id": 1, "amount": 5}).status_code == 422
+    assert client.post(url, json={"from_member_id": asha, "to_member_id": 9999, "amount": 5}).status_code == 422
     assert client.post(url, json={"from_member_id": asha, "to_member_id": ben, "amount": -5}).status_code == 422
 
 
@@ -102,10 +97,18 @@ def test_list_and_delete_expense_and_settlement(client, group):
     assert client.get(f"/groups/{group['id']}/settlements").json() == []
 
 
-def respond(client, group, expense, member_id, decision):
+
+def join_as(client, group, name, phone):
+    headers = sign_in(client, name, phone)
+    client.post(f"/groups/join/{group['invite_code']}", headers=headers)
+    return headers
+
+
+def respond(client, group, expense, headers, decision):
     return client.post(
         f"/groups/{group['id']}/expenses/{expense['id']}/respond",
-        json={"member_id": member_id, "decision": decision},
+        json={"decision": decision},
+        headers=headers,
     )
 
 
@@ -115,7 +118,7 @@ def test_new_expense_shares_are_pending_except_payer(client, group):
 
 
 def test_accept_share(client, group):
-    _, ben, _ = member_ids(group)
+    ben = join_as(client, group, "Ben", "9000000002")
     expense = add_expense(client, group).json()
     response = respond(client, group, expense, ben, "accept")
     assert response.status_code == 200
@@ -124,7 +127,7 @@ def test_accept_share(client, group):
 
 
 def test_reject_resplits_between_the_rest(client, group):
-    asha, ben, chen = member_ids(group)
+    chen = join_as(client, group, "Chen", "9000000003")
     expense = add_expense(client, group, amount=90).json()
     shares = respond(client, group, expense, chen, "reject").json()["shares"]
     assert [(s["amount"], s["status"]) for s in shares] == [(45.0, "accepted"), (45.0, "pending"), (0.0, "rejected")]
@@ -133,14 +136,25 @@ def test_reject_resplits_between_the_rest(client, group):
     assert balances == {"Asha": 45.0, "Ben": -45.0, "Chen": 0.0}
 
 
+def test_only_your_own_share_can_be_answered(client, group):
+    asha, ben, _ = member_ids(group)
+    # Asha paid, so her share is already accepted and she cannot answer for Ben.
+    expense = add_expense(client, group).json()
+    assert respond(client, group, expense, {}, "reject").status_code == 409
+    # Someone outside the split gets a 404.
+    dev = join_as(client, group, "Dev", "9000000004")
+    assert respond(client, group, expense, dev, "accept").status_code == 404
+
+
 def test_last_person_cannot_reject(client, group):
     asha, ben, _ = member_ids(group)
+    ben_headers = join_as(client, group, "Ben", "9000000002")
     expense = add_expense(client, group, paid_by_id=asha, split_between=[ben]).json()
-    assert respond(client, group, expense, ben, "reject").status_code == 409
+    assert respond(client, group, expense, ben_headers, "reject").status_code == 409
 
 
 def test_respond_validation(client, group):
+    ben = join_as(client, group, "Ben", "9000000002")
     expense = add_expense(client, group).json()
-    assert respond(client, group, expense, 9999, "accept").status_code == 404
-    assert respond(client, group, expense, member_ids(group)[1], "maybe").status_code == 422
-    assert respond(client, group, {"id": 9999}, member_ids(group)[1], "accept").status_code == 404
+    assert respond(client, group, expense, ben, "maybe").status_code == 422
+    assert respond(client, group, {"id": 9999}, ben, "accept").status_code == 404

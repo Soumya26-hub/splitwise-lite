@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timezone
 
 from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
@@ -10,12 +11,29 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
+def new_secret():
+    return secrets.token_urlsafe(16)
+
+
+class User(Base):
+    """Someone signed in with their name and phone number (no password)."""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    phone = Column(String, unique=True, nullable=False, index=True)
+    token = Column(String, unique=True, nullable=False, index=True, default=new_secret)
+
+
 class Group(Base):
     __tablename__ = "groups"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     currency = Column(String, nullable=False, default="₹")
+    # Anyone with the invite link (/?join=<code>) can join the group.
+    invite_code = Column(String, unique=True, index=True, default=new_secret)
 
     # Deleting a group removes everything that belongs to it.
     members = relationship(
@@ -35,6 +53,8 @@ class Member(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    # Set once the person signs in and joins; until then the member is just a name.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     group = relationship("Group", back_populates="members")
 

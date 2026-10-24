@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from decimal import Decimal
 
@@ -13,6 +14,17 @@ def normalize_name(value: str) -> str:
     return value
 
 
+PHONE_PATTERN = re.compile(r"^\+?\d{10,15}$")
+
+
+def normalize_phone(value: str) -> str:
+    # Accept "+91 98765-43210" style input; store digits with an optional leading +.
+    value = re.sub(r"[\s\-()]", "", value)
+    if not PHONE_PATTERN.match(value):
+        raise ValueError("phone must be 10 to 15 digits, optionally starting with +")
+    return value
+
+
 def cents_to_amount(cents: int) -> float:
     return round(cents / 100, 2)
 
@@ -25,6 +37,34 @@ def amount_to_cents(amount: Decimal) -> int:
 Amount = Field(gt=0, lt=10_000_000, max_digits=10, decimal_places=2)
 
 
+class SignIn(BaseModel):
+    name: str
+    phone: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return normalize_name(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return normalize_phone(value)
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    phone: str
+
+
+class SignInResult(BaseModel):
+    token: str
+    user: UserRead
+
+
 class MemberCreate(BaseModel):
     name: str
 
@@ -35,10 +75,10 @@ class MemberCreate(BaseModel):
 
 
 class MemberRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     name: str
+    # True once the person has signed in and joined the group.
+    joined: bool = False
 
 
 class GroupCreate(BaseModel):
@@ -70,6 +110,9 @@ class GroupSummary(BaseModel):
 
 class GroupRead(GroupSummary):
     members: list[MemberRead]
+    invite_code: str
+    # The signed-in user's member id in this group.
+    my_member_id: int
 
 
 class ExpenseCreate(BaseModel):
@@ -106,7 +149,6 @@ class ExpenseShareRead(BaseModel):
 
 
 class ShareResponse(BaseModel):
-    member_id: int
     decision: Literal["accept", "reject"]
 
 

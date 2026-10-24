@@ -2,27 +2,97 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .algorithms import compute_balances, simplify_debts, split_equally
-from .models import Expense, ExpenseShare, Group, Member, Settlement
+from .models import Expense, ExpenseShare, Group, Member, Settlement, User, new_secret
 from .schemas import (
     ExpenseCreate,
     GroupCreate,
     SettlementCreate,
+    SignIn,
     amount_to_cents,
     cents_to_amount,
 )
 
 
-def create_group(db: Session, group_data: GroupCreate):
+def sign_in(db: Session, sign_in_data: SignIn):
+    """Find the user by phone, or create them. The phone number is the identity."""
+    user = db.query(User).filter(User.phone == sign_in_data.phone).first()
+    if user is None:
+        user = User(name=sign_in_data.name, phone=sign_in_data.phone)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+def get_user_by_token(db: Session, token: str):
+    return db.query(User).filter(User.token == token).first()
+
+
+def find_member_by_name(group: Group, name: str):
+    return next((member for member in group.members if member.name.lower() == name.lower()), None)
+
+
+def link_user_to_group(db: Session, group: Group, user: User):
+    """Make the user a member: claim the unclaimed member with their name, or add them."""
+    member = next((member for member in group.members if member.user_id == user.id), None)
+    if member is not None:
+        return member
+    member = find_member_by_name(group, user.name)
+    if member is None:
+        member = Member(name=user.name, group_id=group.id)
+        group.members.append(member)
+    elif member.user_id is not None:
+        return None
+    member.user_id = user.id
+    db.commit()
+    db.refresh(group)
+    return member
+
+
+def create_group(db: Session, group_data: GroupCreate, user: User):
     group = Group(name=group_data.name, currency=group_data.currency)
     group.members = [Member(name=name) for name in group_data.members]
     db.add(group)
     db.commit()
     db.refresh(group)
+    link_user_to_group(db, group, user)
     return group
 
 
-def get_groups(db: Session):
-    return db.query(Group).order_by(Group.id).all()
+def get_groups_for_user(db: Session, user: User):
+    return (
+        db.query(Group)
+        .join(Member, Member.group_id == Group.id)
+        .filter(Member.user_id == user.id)
+        .order_by(Group.id)
+        .all()
+    )
+
+
+def get_group_by_invite(db: Session, invite_code: str):
+    return db.query(Group).filter(Group.invite_code == invite_code).first()
+
+
+def my_member(group: Group, user: User):
+    return next((member for member in group.members if member.user_id == user.id), None)
+
+
+def group_to_dict(db: Session, group: Group, user: User):
+    if group.invite_code is None:
+        # Groups created before invite links existed get one on first read.
+        group.invite_code = new_secret()
+        db.commit()
+    return {
+        "id": group.id,
+        "name": group.name,
+        "currency": group.currency,
+        "invite_code": group.invite_code,
+        "my_member_id": my_member(group, user).id,
+        "members": [
+            {"id": member.id, "name": member.name, "joined": member.user_id is not None}
+            for member in group.members
+        ],
+    }
 
 
 def get_group(db: Session, group_id: int):

@@ -8,11 +8,12 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from . import crud
-from .database import Base, SessionLocal, engine
+from .database import Base, SessionLocal, add_missing_columns, engine
 from .seed_data import seed_if_empty
 from .schemas import (
     ExpenseCreate,
     ExpenseRead,
+    ShareResponse,
     GroupBalances,
     GroupCreate,
     GroupRead,
@@ -28,6 +29,7 @@ from .schemas import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    add_missing_columns()
     db = SessionLocal()
     try:
         seed_if_empty(db)
@@ -143,6 +145,26 @@ def delete_expense(expense_id: int, group=Depends(get_group_or_404), db: Session
     if expense is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
     crud.delete_expense(db, expense)
+
+
+@app.post("/groups/{group_id}/expenses/{expense_id}/respond", response_model=ExpenseRead)
+def respond_to_expense(
+    expense_id: int, response: ShareResponse, group=Depends(get_group_or_404), db: Session = Depends(get_db)
+):
+    expense = crud.get_expense(db, group.id, expense_id)
+    if expense is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+    share = next((share for share in expense.shares if share.member_id == response.member_id), None)
+    if share is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This member is not in the split")
+    if share.status != "pending":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"This share was already {share.status}.")
+    if response.decision == "reject" and sum(s.status != "rejected" for s in expense.shares) == 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The last person in a split cannot reject it. Delete the expense instead.",
+        )
+    return crud.expense_to_dict(crud.respond_to_share(db, expense, share, response.decision))
 
 
 # Settlements (recorded repayments)

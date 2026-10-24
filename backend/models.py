@@ -67,6 +67,8 @@ class ExpenseShare(Base):
     expense_id = Column(Integer, ForeignKey("expenses.id"), nullable=False)
     member_id = Column(Integer, ForeignKey("members.id"), nullable=False)
     share_cents = Column(Integer, nullable=False)
+    # pending -> accepted or rejected. A rejected share is kept at 0 so the app can show who said no.
+    status = Column(String, nullable=False, default="pending")
 
     expense = relationship("Expense", back_populates="shares")
 

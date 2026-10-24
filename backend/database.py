@@ -24,5 +24,15 @@ def enable_sqlite_foreign_keys(dbapi_connection, connection_record):
     cursor.close()
 
 
+def add_missing_columns():
+    """Add columns introduced after a user's database was created (create_all skips existing tables)."""
+    with engine.begin() as connection:
+        columns = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(expense_shares)")]
+        if columns and "status" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE expense_shares ADD COLUMN status VARCHAR NOT NULL DEFAULT 'accepted'"
+            )
+
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

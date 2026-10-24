@@ -91,8 +91,13 @@ def create_expense(db: Session, group: Group, expense_data: ExpenseCreate):
         group_id=group.id,
         paid_by_id=expense_data.paid_by_id,
     )
+    # The payer obviously agrees with their own expense; everyone else confirms it.
     expense.shares = [
-        ExpenseShare(member_id=member_id, share_cents=share_cents)
+        ExpenseShare(
+            member_id=member_id,
+            share_cents=share_cents,
+            status="accepted" if member_id == expense.paid_by_id else "pending",
+        )
         for member_id, share_cents in shares.items()
     ]
     db.add(expense)
@@ -113,6 +118,22 @@ def get_expenses(db: Session, group_id: int):
 
 def get_expense(db: Session, group_id: int, expense_id: int):
     return db.query(Expense).filter(Expense.group_id == group_id, Expense.id == expense_id).first()
+
+
+def respond_to_share(db: Session, expense: Expense, share: ExpenseShare, decision: str):
+    if decision == "accept":
+        share.status = "accepted"
+    else:
+        # Re-split the whole amount between everyone who has not rejected it.
+        share.status = "rejected"
+        share.share_cents = 0
+        remaining = [s for s in expense.shares if s.status != "rejected"]
+        new_shares = split_equally(expense.amount_cents, [s.member_id for s in remaining])
+        for remaining_share in remaining:
+            remaining_share.share_cents = new_shares[remaining_share.member_id]
+    db.commit()
+    db.refresh(expense)
+    return expense
 
 
 def delete_expense(db: Session, expense: Expense):
@@ -188,7 +209,7 @@ def expense_to_dict(expense: Expense):
         "paid_by_id": expense.paid_by_id,
         "created_at": expense.created_at,
         "shares": [
-            {"member_id": share.member_id, "amount": cents_to_amount(share.share_cents)}
+            {"member_id": share.member_id, "amount": cents_to_amount(share.share_cents), "status": share.status}
             for share in expense.shares
         ],
     }

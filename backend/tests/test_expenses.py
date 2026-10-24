@@ -100,3 +100,47 @@ def test_list_and_delete_expense_and_settlement(client, group):
     assert len(client.get(f"/groups/{group['id']}/settlements").json()) == 1
     assert client.delete(f"/groups/{group['id']}/settlements/{settlement['id']}").status_code == 204
     assert client.get(f"/groups/{group['id']}/settlements").json() == []
+
+
+def respond(client, group, expense, member_id, decision):
+    return client.post(
+        f"/groups/{group['id']}/expenses/{expense['id']}/respond",
+        json={"member_id": member_id, "decision": decision},
+    )
+
+
+def test_new_expense_shares_are_pending_except_payer(client, group):
+    expense = add_expense(client, group).json()
+    assert [share["status"] for share in expense["shares"]] == ["accepted", "pending", "pending"]
+
+
+def test_accept_share(client, group):
+    _, ben, _ = member_ids(group)
+    expense = add_expense(client, group).json()
+    response = respond(client, group, expense, ben, "accept")
+    assert response.status_code == 200
+    assert response.json()["shares"][1]["status"] == "accepted"
+    assert respond(client, group, expense, ben, "reject").status_code == 409
+
+
+def test_reject_resplits_between_the_rest(client, group):
+    asha, ben, chen = member_ids(group)
+    expense = add_expense(client, group, amount=90).json()
+    shares = respond(client, group, expense, chen, "reject").json()["shares"]
+    assert [(s["amount"], s["status"]) for s in shares] == [(45.0, "accepted"), (45.0, "pending"), (0.0, "rejected")]
+
+    balances, _ = balances_by_name(client, group)
+    assert balances == {"Asha": 45.0, "Ben": -45.0, "Chen": 0.0}
+
+
+def test_last_person_cannot_reject(client, group):
+    asha, ben, _ = member_ids(group)
+    expense = add_expense(client, group, paid_by_id=asha, split_between=[ben]).json()
+    assert respond(client, group, expense, ben, "reject").status_code == 409
+
+
+def test_respond_validation(client, group):
+    expense = add_expense(client, group).json()
+    assert respond(client, group, expense, 9999, "accept").status_code == 404
+    assert respond(client, group, expense, member_ids(group)[1], "maybe").status_code == 422
+    assert respond(client, group, {"id": 9999}, member_ids(group)[1], "accept").status_code == 404

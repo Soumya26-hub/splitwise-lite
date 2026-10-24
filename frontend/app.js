@@ -19,6 +19,8 @@ const LAST_GROUP_KEY = "splitwise-lite:last-group";
 
 // The group currently on screen, as returned by GET /groups/{id}.
 let currentGroup = null;
+// Expenses on screen by id, so activity buttons can build share messages.
+let expensesById = new Map();
 let toastTimer = null;
 
 function showError(message) {
@@ -252,10 +254,7 @@ function renderBalances(data) {
 }
 
 // Share a friendly nudge: the phone's share sheet where supported, otherwise WhatsApp.
-async function sendReminder(button) {
-  const debtor = memberName(Number(button.dataset.from));
-  const creditor = memberName(Number(button.dataset.to));
-  const message = `Hi ${debtor}, a reminder that you owe ${creditor} ${formatMoney(Number(button.dataset.amount))} for "${currentGroup.name}". Thanks!`;
+async function shareMessage(message) {
   if (navigator.share) {
     try {
       await navigator.share({ text: message });
@@ -266,6 +265,14 @@ async function sendReminder(button) {
     }
   }
   window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener");
+}
+
+function sendReminder(button) {
+  const debtor = memberName(Number(button.dataset.from));
+  const creditor = memberName(Number(button.dataset.to));
+  shareMessage(
+    `Hi ${debtor}, a reminder that you owe ${creditor} ${formatMoney(Number(button.dataset.amount))} for "${currentGroup.name}". Thanks!`,
+  );
 }
 
 settleList.addEventListener("click", async (event) => {
@@ -381,6 +388,7 @@ expenseForm.addEventListener("submit", async (event) => {
 // Activity
 
 function renderActivity(expenses, settlements) {
+  expensesById = new Map(expenses.map((expense) => [expense.id, expense]));
   const items = [
     ...expenses.map((expense) => ({ type: "expense", date: expense.created_at, data: expense })),
     ...settlements.map((settlement) => ({ type: "settlement", date: settlement.created_at, data: settlement })),
@@ -396,16 +404,19 @@ function renderActivity(expenses, settlements) {
       const row = createElement("li", `card activity-row ${type}`);
       const details = createElement("div", "activity-details");
       let action;
+      let splitMembers = null;
       if (type === "expense") {
+        const included = data.shares.filter((share) => share.status !== "rejected");
         details.append(
           createElement("p", "row-title", data.description),
           createElement(
             "p",
             "hint",
-            `${memberName(data.paid_by_id)} paid · split ${data.shares.length} ways · ${formatDate(date)}`,
+            `${memberName(data.paid_by_id)} paid · split ${included.length} ways · ${formatDate(date)}`,
           ),
         );
         action = "delete-expense";
+        splitMembers = createSplitMembers(data);
       } else {
         details.append(
           createElement("p", "row-title", `${memberName(data.from_member_id)} paid ${memberName(data.to_member_id)}`),
@@ -419,14 +430,87 @@ function renderActivity(expenses, settlements) {
         createButton("✕", action, data.id, "icon-button"),
       );
       row.lastChild.setAttribute("aria-label", "Delete");
+      if (splitMembers) row.append(splitMembers);
       return row;
     }),
   );
 }
 
+const STATUS_LABELS = { accepted: "✓ Accepted", rejected: "✕ Rejected" };
+
+// Who is in a split, what each owes, and Accept/Reject for anyone who hasn't answered yet.
+function createSplitMembers(expense) {
+  const list = createElement("ul", "split-members");
+  for (const share of expense.shares) {
+    const item = createElement("li", `split-member ${share.status}`);
+    item.append(
+      createElement("span", "split-name", memberName(share.member_id)),
+      createElement("span", "split-amount", share.status === "rejected" ? "-" : formatMoney(share.amount)),
+    );
+    // Pending rows show their Accept/Reject buttons instead of a badge, so they fit on one line.
+    if (share.status !== "pending") {
+      item.append(createElement("span", `status-badge ${share.status}`, STATUS_LABELS[share.status]));
+    } else {
+      for (const [label, decision] of [["Accept", "accept"], ["Reject", "reject"]]) {
+        const button = createButton(label, "respond", expense.id, `mini-button ${decision}`);
+        button.dataset.member = share.member_id;
+        button.dataset.decision = decision;
+        item.append(button);
+      }
+    }
+    list.append(item);
+  }
+  const notify = createButton("📣 Notify members", "notify-expense", expense.id, "text-button");
+  list.append(notify);
+  return list;
+}
+
+function expenseMessage(expense) {
+  const lines = expense.shares
+    .filter((share) => share.status !== "rejected")
+    .map((share) => `• ${memberName(share.member_id)}: ${formatMoney(share.amount)}`);
+  return `New expense in "${currentGroup.name}": ${expense.description} ${formatMoney(expense.amount)}, paid by ${memberName(expense.paid_by_id)}.\n${lines.join("\n")}\nPlease open Splitwise Lite to accept or reject your share.`;
+}
+
+async function respondToShare(button) {
+  const expense = expensesById.get(Number(button.dataset.id));
+  const memberId = Number(button.dataset.member);
+  const rejecting = button.dataset.decision === "reject";
+  if (rejecting && !confirm(`Remove ${memberName(memberId)} from "${expense.description}"? The cost will be split between the others.`)) {
+    return;
+  }
+  try {
+    const updated = await api(`/groups/${currentGroup.id}/expenses/${expense.id}/respond`, {
+      method: "POST",
+      body: JSON.stringify({ member_id: memberId, decision: button.dataset.decision }),
+    });
+    showToast(rejecting ? "Rejected, cost re-split" : "Share accepted");
+    await refresh();
+    if (rejecting) {
+      // There are no accounts, so tell the payer through the share sheet / WhatsApp.
+      const remaining = updated.shares
+        .filter((share) => share.status !== "rejected")
+        .map((share) => `${memberName(share.member_id)} ${formatMoney(share.amount)}`);
+      shareMessage(
+        `Hi ${memberName(updated.paid_by_id)}, ${memberName(memberId)} rejected "${updated.description}" in "${currentGroup.name}". It is now split as: ${remaining.join(", ")}.`,
+      );
+    }
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
 activityList.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
+  if (button.dataset.action === "respond") {
+    respondToShare(button);
+    return;
+  }
+  if (button.dataset.action === "notify-expense") {
+    shareMessage(expenseMessage(expensesById.get(Number(button.dataset.id))));
+    return;
+  }
   const path = button.dataset.action === "delete-expense" ? "expenses" : "settlements";
   if (!confirm("Delete this entry? Balances will be recalculated.")) return;
   try {
@@ -486,6 +570,14 @@ memberList.addEventListener("click", async (event) => {
   } catch (error) {
     showError(error.message);
   }
+});
+
+document.querySelector("#share-group-btn").addEventListener("click", () => {
+  if (!currentGroup) return;
+  const names = currentGroup.members.map((member) => member.name).join(", ");
+  shareMessage(
+    `You've been added to "${currentGroup.name}" on Splitwise Lite with ${names}. We'll track shared expenses there and settle up at the end.`,
+  );
 });
 
 document.querySelector("#delete-group-btn").addEventListener("click", async () => {

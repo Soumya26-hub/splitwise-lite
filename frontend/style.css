@@ -490,3 +490,88 @@ dialog h2 {
     padding-left: calc((100% - 560px) / 2);
   }
 }
+
+/* Split members inside an activity row */
+
+.activity-row.expense {
+  flex-wrap: wrap;
+}
+
+.split-members {
+  display: grid;
+  flex-basis: 100%;
+  gap: 0.4rem;
+  margin: 0.25rem 0 0;
+  padding: 0.6rem 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  font-size: 0.9rem;
+}
+
+.split-member {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.split-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.split-member.rejected .split-name {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.status-badge {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+
+.status-badge.accepted {
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+}
+
+.status-badge.rejected {
+  background: #fee2e2;
+  color: var(--negative);
+}
+
+.mini-button {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.mini-button.accept {
+  color: var(--positive);
+}
+
+.mini-button.reject {
+  color: var(--negative);
+}
+
+.split-members .text-button {
+  justify-self: start;
+  font-size: 0.9rem;
+}
+
+.secondary-wide-button {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 1rem;
+  border: 1px solid var(--brand);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--brand);
+  font-weight: 600;
+}

@@ -1,6 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -100,6 +102,12 @@ class ExpenseCreate(BaseModel):
 class ExpenseShareRead(BaseModel):
     member_id: int
     amount: float
+    status: Literal["pending", "accepted", "rejected"]
+
+
+class ShareResponse(BaseModel):
+    member_id: int
+    decision: Literal["accept", "reject"]
 
 
 class ExpenseRead(BaseModel):

@@ -13,7 +13,10 @@ installs on a phone as a Progressive Web App (PWA).
 - "Settle up" suggestions using a debt-simplification algorithm
 - Record repayments with one tap ("Mark paid")
 - "Remind" button shares a payment reminder via the phone's share sheet, or WhatsApp on desktop
-- Activity feed with delete, which recalculates balances
+- Each person accepts or rejects their share of a new expense; a rejection re-splits
+  the cost between the rest and offers to message the payer
+- Activity feed shows who is in each split, with delete, which recalculates balances
+- "Tell members" / "Notify members" buttons share a new group or expense with everyone
 - Installable on Android and iPhone ("Add to Home Screen"), works full screen
 
 ## Tech Stack
@@ -99,6 +102,7 @@ DELETE /groups/{group_id}/members/{member_id}    (409 if they have expenses or p
 POST   /groups/{group_id}/expenses               {description, amount, paid_by_id, split_between?}
 GET    /groups/{group_id}/expenses
 DELETE /groups/{group_id}/expenses/{expense_id}
+POST   /groups/{group_id}/expenses/{expense_id}/respond   {member_id, decision: accept|reject}
 
 POST   /groups/{group_id}/settlements            {from_member_id, to_member_id, amount}
 GET    /groups/{group_id}/settlements
@@ -150,6 +154,12 @@ splitwise-lite/
 ├── .gitignore
 └── README.md
 ```
+
+## Limitations
+
+There are no user accounts, so anyone using the app can accept or reject on a
+member's behalf, and notifications are sent by sharing a message (share sheet or
+WhatsApp) rather than as push notifications.
 
 ## Security
 

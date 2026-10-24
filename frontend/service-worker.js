@@ -1,6 +1,6 @@
 // Caches the app shell so the app opens instantly and installs as a PWA.
 // API calls always go to the network so balances are never stale.
-const CACHE_NAME = "splitwise-lite-v2";
+const CACHE_NAME = "splitwise-lite-v3";
 const APP_SHELL = [
   "/",
   "/index.html",

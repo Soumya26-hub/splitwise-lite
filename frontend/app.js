@@ -241,13 +241,39 @@ function renderBalances(data) {
       button.dataset.from = payment.from_member_id;
       button.dataset.to = payment.to_member_id;
       button.dataset.amount = payment.amount;
-      row.append(text, amount, button);
+      const remind = createButton("Remind", "remind", "", "small-button secondary");
+      remind.dataset.from = payment.from_member_id;
+      remind.dataset.to = payment.to_member_id;
+      remind.dataset.amount = payment.amount;
+      row.append(text, amount, remind, button);
       return row;
     }),
   );
 }
 
+// Share a friendly nudge: the phone's share sheet where supported, otherwise WhatsApp.
+async function sendReminder(button) {
+  const debtor = memberName(Number(button.dataset.from));
+  const creditor = memberName(Number(button.dataset.to));
+  const message = `Hi ${debtor}, a reminder that you owe ${creditor} ${formatMoney(Number(button.dataset.amount))} for "${currentGroup.name}". Thanks!`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ text: message });
+      return;
+    } catch (error) {
+      // The user closed the share sheet; nothing else to do.
+      if (error.name === "AbortError") return;
+    }
+  }
+  window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener");
+}
+
 settleList.addEventListener("click", async (event) => {
+  const remindButton = event.target.closest("button[data-action='remind']");
+  if (remindButton) {
+    sendReminder(remindButton);
+    return;
+  }
   const button = event.target.closest("button[data-action='settle']");
   if (!button) return;
   button.disabled = true;

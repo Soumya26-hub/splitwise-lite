@@ -212,6 +212,14 @@ h2 {
   flex-wrap: wrap;
 }
 
+.settle-row .row-title {
+  flex-basis: 100%;
+}
+
+.settle-row .amount {
+  flex: 1;
+}
+
 .activity-details {
   flex: 1;
   min-width: 0;

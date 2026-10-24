@@ -12,6 +12,7 @@ installs on a phone as a Progressive Web App (PWA).
 - Live balances: who gets money back and who owes
 - "Settle up" suggestions using a debt-simplification algorithm
 - Record repayments with one tap ("Mark paid")
+- "Remind" button shares a payment reminder via the phone's share sheet, or WhatsApp on desktop
 - Activity feed with delete, which recalculates balances
 - Installable on Android and iPhone ("Add to Home Screen"), works full screen
 

@@ -1,0 +1,16 @@
+# Render Blueprint: New > Blueprint on render.com, pick this repo, and it reads this file.
+services:
+  - type: web
+    name: splitwise-lite
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /manifest.webmanifest
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      # Paste a Postgres connection string (e.g. from neon.tech) so data survives restarts.
+      # Leave it empty to use SQLite, which is wiped whenever Render restarts the app.
+      - key: DATABASE_URL
+        sync: false

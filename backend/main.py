@@ -2,14 +2,13 @@ import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from . import crud
 from .database import Base, SessionLocal, add_missing_columns, engine
-from .seed_data import seed_if_empty
 from .schemas import (
     ExpenseCreate,
     ExpenseRead,
@@ -22,19 +21,17 @@ from .schemas import (
     MemberRead,
     SettlementCreate,
     SettlementRead,
+    SignIn,
+    SignInResult,
+    UserRead,
 )
 
 
-# Run once when FastAPI starts: create tables, then seed the demo group only if empty.
+# Run once when FastAPI starts: create tables and upgrade older databases.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     add_missing_columns()
-    db = SessionLocal()
-    try:
-        seed_if_empty(db)
-    finally:
-        db.close()
     yield
 
 
@@ -44,7 +41,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5500"],
     allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -56,9 +53,18 @@ def get_db():
         db.close()
 
 
-def get_group_or_404(group_id: int, db: Session = Depends(get_db)):
+def get_current_user(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    user = crud.get_user_by_token(db, token) if token else None
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Please sign in.")
+    return user
+
+
+def get_group_or_404(group_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
     group = crud.get_group(db, group_id)
-    if group is None:
+    # Groups you have not joined look the same as groups that do not exist.
+    if group is None or crud.my_member(group, user) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
     return group
 
@@ -72,27 +78,52 @@ def ensure_members_in_group(group, member_ids):
         )
 
 
+# Sign in (name + phone, no password)
+
+@app.post("/auth/signin", response_model=SignInResult)
+def sign_in(sign_in_data: SignIn, db: Session = Depends(get_db)):
+    user = crud.sign_in(db, sign_in_data)
+    return {"token": user.token, "user": user}
+
+
+@app.get("/auth/me", response_model=UserRead)
+def read_me(user=Depends(get_current_user)):
+    return user
+
+
 # Groups
 
 @app.post("/groups/", response_model=GroupRead, status_code=status.HTTP_201_CREATED)
-def create_group(group_data: GroupCreate, db: Session = Depends(get_db)):
-    return crud.create_group(db, group_data)
+def create_group(group_data: GroupCreate, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return crud.group_to_dict(db, crud.create_group(db, group_data, user), user)
 
 
 @app.get("/groups/", response_model=list[GroupSummary])
-def read_groups(db: Session = Depends(get_db)):
-    return crud.get_groups(db)
+def read_groups(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return crud.get_groups_for_user(db, user)
+
+
+@app.post("/groups/join/{invite_code}", response_model=GroupRead)
+def join_group(invite_code: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    group = crud.get_group_by_invite(db, invite_code)
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This invite link is not valid.")
+    if crud.link_user_to_group(db, group, user) is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Someone else already joined as {user.name}. Sign in with a different name.",
+        )
+    return crud.group_to_dict(db, group, user)
 
 
 @app.get("/groups/{group_id}", response_model=GroupRead)
-def read_group(group=Depends(get_group_or_404)):
-    return group
+def read_group(group=Depends(get_group_or_404), user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return crud.group_to_dict(db, group, user)
 
 
 @app.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_group(group_id: int, db: Session = Depends(get_db)):
-    if crud.delete_group(db, group_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+def delete_group(group=Depends(get_group_or_404), db: Session = Depends(get_db)):
+    crud.delete_group(db, group.id)
 
 
 # Members
@@ -104,7 +135,8 @@ def add_member(member_data: MemberCreate, group=Depends(get_group_or_404), db: S
             status_code=status.HTTP_409_CONFLICT,
             detail="Someone with this name is already in the group.",
         )
-    return crud.add_member(db, group.id, member_data.name)
+    member = crud.add_member(db, group.id, member_data.name)
+    return {"id": member.id, "name": member.name, "joined": False}
 
 
 @app.delete("/groups/{group_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -149,14 +181,20 @@ def delete_expense(expense_id: int, group=Depends(get_group_or_404), db: Session
 
 @app.post("/groups/{group_id}/expenses/{expense_id}/respond", response_model=ExpenseRead)
 def respond_to_expense(
-    expense_id: int, response: ShareResponse, group=Depends(get_group_or_404), db: Session = Depends(get_db)
+    expense_id: int,
+    response: ShareResponse,
+    group=Depends(get_group_or_404),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     expense = crud.get_expense(db, group.id, expense_id)
     if expense is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
-    share = next((share for share in expense.shares if share.member_id == response.member_id), None)
+    # You can only answer for your own share.
+    my_member_id = crud.my_member(group, user).id
+    share = next((share for share in expense.shares if share.member_id == my_member_id), None)
     if share is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This member is not in the split")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="You are not in this split")
     if share.status != "pending":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"This share was already {share.status}.")
     if response.decision == "reject" and sum(s.status != "rejected" for s in expense.shares) == 1:

@@ -575,3 +575,57 @@ dialog h2 {
   color: var(--brand);
   font-weight: 600;
 }
+
+/* Sign in */
+
+.signin-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: var(--bg);
+}
+
+.signin-screen[hidden] {
+  display: none;
+}
+
+.signin-screen form {
+  width: min(100%, 420px);
+}
+
+.signin-screen h1 {
+  margin: 0;
+}
+
+.signin-screen .eyebrow {
+  color: var(--brand);
+}
+
+.signin-error:empty {
+  display: none;
+}
+
+.signin-error {
+  margin: 0;
+  color: var(--negative);
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 0.85;
+}
+
+.status-badge.pending {
+  background: #fef3c7;
+  color: #92400e;
+}

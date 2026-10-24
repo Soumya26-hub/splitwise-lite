@@ -1,3 +1,4 @@
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -181,5 +182,8 @@ def read_balances(group=Depends(get_group_or_404), db: Session = Depends(get_db)
     return crud.get_group_balances(db, group)
 
 
+# Windows can map .js to text/plain in its registry, which stops browsers running app.js.
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 frontend_directory = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/", StaticFiles(directory=frontend_directory, html=True), name="frontend")

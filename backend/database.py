@@ -39,6 +39,7 @@ NEW_COLUMNS = {
     "expense_shares": {"status": "VARCHAR NOT NULL DEFAULT 'accepted'"},
     "members": {"user_id": "INTEGER REFERENCES users(id)"},
     "groups": {"invite_code": "VARCHAR"},
+    "settlements": {"status": "VARCHAR NOT NULL DEFAULT 'confirmed'"},
 }
 
 

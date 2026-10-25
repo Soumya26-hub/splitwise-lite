@@ -180,6 +180,7 @@ class SettlementRead(BaseModel):
     to_member_id: int
     amount: float
     created_at: datetime
+    status: Literal["pending", "confirmed"]
 
 
 class MemberBalance(BaseModel):

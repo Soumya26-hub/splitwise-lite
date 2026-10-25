@@ -14,7 +14,8 @@ installs on a phone as a Progressive Web App (PWA).
 - Add expenses paid by one person and split equally between everyone or a chosen few
 - Live balances: who gets money back and who owes
 - "Settle up" suggestions using a debt-simplification algorithm
-- Record repayments with one tap ("Mark paid")
+- Record repayments with one tap ("Mark paid"); the payment only clears the debt
+  once the person paid taps "Received" ("Not received" removes it)
 - "Remind" opens the member's own WhatsApp chat with the reminder filled in (falls back to the share sheet if they have not signed in)
 - Each person accepts or rejects their own share of a new expense; a rejection
   re-splits the cost between the rest and offers to message the payer
@@ -136,6 +137,7 @@ POST   /groups/{group_id}/expenses/{expense_id}/respond   {decision: accept|reje
 
 POST   /groups/{group_id}/settlements            {from_member_id, to_member_id, amount}
 GET    /groups/{group_id}/settlements
+POST   /groups/{group_id}/settlements/{settlement_id}/confirm   the person paid confirms receipt
 DELETE /groups/{group_id}/settlements/{settlement_id}
 
 GET    /groups/{group_id}/balances               balances + suggested settle-up payments

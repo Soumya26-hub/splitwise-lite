@@ -198,9 +198,10 @@ async function loadGroup(groupId) {
   ]);
   currentGroup = group;
   rememberGroup(groupId);
+  // Activity first: it fills expensesById, which the Settle up rows read.
+  renderActivity(expenses, settlements);
   renderBalances(balances);
   renderExpenseForm();
-  renderActivity(expenses, settlements);
   renderMembers();
 }
 
@@ -265,15 +266,28 @@ function renderBalances(data) {
         createElement("strong", "", memberName(payment.to_member_id)),
       );
       const amount = createElement("p", "amount", formatMoney(payment.amount));
-      const button = createButton("Mark paid", "settle", "", "small-button");
-      button.dataset.from = payment.from_member_id;
-      button.dataset.to = payment.to_member_id;
-      button.dataset.amount = payment.amount;
       const remind = createButton("Remind", "remind", "", "small-button secondary");
       remind.dataset.from = payment.from_member_id;
       remind.dataset.to = payment.to_member_id;
       remind.dataset.amount = payment.amount;
-      row.append(text, amount, remind, button);
+      row.append(text, amount, remind);
+
+      // Someone has to accept their shares before they can be marked as paid.
+      const pending = pendingExpenseIds(payment.from_member_id);
+      if (pending.length && payment.from_member_id === currentGroup.my_member_id) {
+        const accept = createButton("Accept", "accept-all", "", "small-button");
+        accept.dataset.expenses = pending.join(",");
+        row.append(accept);
+        row.append(createElement("p", "hint settle-note", `${pending.length} expense(s) to accept. Reject one from the Activity tab.`));
+      } else if (pending.length) {
+        row.append(createElement("p", "hint settle-note", `⏳ Waiting for ${memberName(payment.from_member_id)} to accept`));
+      } else {
+        const button = createButton("Mark paid", "settle", "", "small-button");
+        button.dataset.from = payment.from_member_id;
+        button.dataset.to = payment.to_member_id;
+        button.dataset.amount = payment.amount;
+        row.append(button);
+      }
       return row;
     }),
   );
@@ -301,7 +315,35 @@ function sendReminder(button) {
   );
 }
 
+function pendingExpenseIds(memberId) {
+  return [...expensesById.values()]
+    .filter((expense) => expense.shares.some((share) => share.member_id === memberId && share.status === "pending"))
+    .map((expense) => expense.id);
+}
+
+async function acceptAll(button) {
+  button.disabled = true;
+  try {
+    for (const expenseId of button.dataset.expenses.split(",")) {
+      await api(`/groups/${currentGroup.id}/expenses/${expenseId}/respond`, {
+        method: "POST",
+        body: JSON.stringify({ decision: "accept" }),
+      });
+    }
+    showToast("Accepted. You can now mark it paid.");
+    await refresh();
+  } catch (error) {
+    showError(error.message);
+    button.disabled = false;
+  }
+}
+
 settleList.addEventListener("click", async (event) => {
+  const acceptButton = event.target.closest("button[data-action='accept-all']");
+  if (acceptButton) {
+    acceptAll(acceptButton);
+    return;
+  }
   const remindButton = event.target.closest("button[data-action='remind']");
   if (remindButton) {
     sendReminder(remindButton);

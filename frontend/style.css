@@ -670,3 +670,8 @@ dialog h2 {
   color: var(--muted);
   cursor: default;
 }
+
+.settle-note {
+  flex-basis: 100%;
+  margin: 0;
+}

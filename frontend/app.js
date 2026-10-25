@@ -44,6 +44,7 @@ function saveSession(value) {
 let currentGroup = null;
 // Expenses on screen by id, so activity buttons can build share messages.
 let expensesById = new Map();
+let settlementsList = [];
 let toastTimer = null;
 
 function showError(message) {
@@ -274,6 +275,10 @@ function renderBalances(data) {
 
       // Someone has to accept their shares before they can be marked as paid.
       const pending = pendingExpenseIds(payment.from_member_id);
+      // A payment marked as paid only counts once the person paid confirms it.
+      const sent = settlementsList.find(
+        (s) => s.status === "pending" && s.from_member_id === payment.from_member_id && s.to_member_id === payment.to_member_id,
+      );
       if (pending.length && payment.from_member_id === currentGroup.my_member_id) {
         const accept = createButton("Accept", "accept-all", "", "small-button");
         accept.dataset.expenses = pending.join(",");
@@ -281,6 +286,14 @@ function renderBalances(data) {
         row.append(createElement("p", "hint settle-note", `${pending.length} expense(s) to accept. Reject one from the Activity tab.`));
       } else if (pending.length) {
         row.append(createElement("p", "hint settle-note", `⏳ Waiting for ${memberName(payment.from_member_id)} to accept`));
+      } else if (sent && payment.to_member_id === currentGroup.my_member_id) {
+        row.append(
+          createButton("Received", "confirm-payment", sent.id, "small-button"),
+          createButton("Not received", "reject-payment", sent.id, "small-button secondary"),
+          createElement("p", "hint settle-note", `${memberName(sent.from_member_id)} says they paid you ${formatMoney(sent.amount)}.`),
+        );
+      } else if (sent) {
+        row.append(createElement("p", "hint settle-note", `⏳ Waiting for ${memberName(sent.to_member_id)} to confirm ${formatMoney(sent.amount)}`));
       } else {
         const button = createButton("Mark paid", "settle", "", "small-button");
         button.dataset.from = payment.from_member_id;
@@ -357,7 +370,28 @@ async function acceptAll(button) {
   }
 }
 
+// The person who was paid says whether the money arrived. "Not received" removes the payment.
+async function answerPayment(button) {
+  const received = button.dataset.action === "confirm-payment";
+  if (!received && !confirm("Mark this payment as not received? It will be removed and the amount stays owed.")) return;
+  button.disabled = true;
+  try {
+    const path = `/groups/${currentGroup.id}/settlements/${button.dataset.id}`;
+    await api(received ? `${path}/confirm` : path, { method: received ? "POST" : "DELETE" });
+    showToast(received ? "Payment confirmed" : "Payment removed");
+    await refresh();
+  } catch (error) {
+    showError(error.message);
+    button.disabled = false;
+  }
+}
+
 settleList.addEventListener("click", async (event) => {
+  const answerButton = event.target.closest("button[data-action='confirm-payment'], button[data-action='reject-payment']");
+  if (answerButton) {
+    answerPayment(answerButton);
+    return;
+  }
   const acceptButton = event.target.closest("button[data-action='accept-all']");
   if (acceptButton) {
     acceptAll(acceptButton);
@@ -371,6 +405,7 @@ settleList.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-action='settle']");
   if (!button) return;
   button.disabled = true;
+  const to = Number(button.dataset.to);
   try {
     await api(`/groups/${currentGroup.id}/settlements`, {
       method: "POST",
@@ -380,7 +415,7 @@ settleList.addEventListener("click", async (event) => {
         amount: button.dataset.amount,
       }),
     });
-    showToast("Payment recorded");
+    showToast(to === currentGroup.my_member_id ? "Payment recorded" : `Sent to ${memberName(to)} to confirm`);
     await refresh();
   } catch (error) {
     showError(error.message);
@@ -475,6 +510,7 @@ expenseForm.addEventListener("submit", async (event) => {
 
 function renderActivity(expenses, settlements) {
   expensesById = new Map(expenses.map((expense) => [expense.id, expense]));
+  settlementsList = settlements;
   const items = [
     ...expenses.map((expense) => ({ type: "expense", date: expense.created_at, data: expense })),
     ...settlements.map((settlement) => ({ type: "settlement", date: settlement.created_at, data: settlement })),
@@ -504,9 +540,10 @@ function renderActivity(expenses, settlements) {
         action = "delete-expense";
         splitMembers = createSplitMembers(data);
       } else {
+        const waiting = data.status === "pending" ? ` · ⏳ Waiting for ${memberName(data.to_member_id)} to confirm` : "";
         details.append(
           createElement("p", "row-title", `${memberName(data.from_member_id)} paid ${memberName(data.to_member_id)}`),
-          createElement("p", "hint", `Repayment · ${formatDate(date)}`),
+          createElement("p", "hint", `Repayment · ${formatDate(date)}${waiting}`),
         );
         action = "delete-settlement";
       }
@@ -517,6 +554,9 @@ function renderActivity(expenses, settlements) {
       );
       row.lastChild.setAttribute("aria-label", "Delete");
       if (splitMembers) row.append(splitMembers);
+      if (type === "settlement" && data.status === "pending" && data.to_member_id === currentGroup.my_member_id) {
+        row.append(createButton("Received", "confirm-payment", data.id, "small-button"));
+      }
       return row;
     }),
   );
@@ -594,6 +634,10 @@ activityList.addEventListener("click", async (event) => {
   if (!button) return;
   if (button.dataset.action === "respond") {
     respondToShare(button);
+    return;
+  }
+  if (button.dataset.action === "confirm-payment" || button.dataset.action === "reject-payment") {
+    answerPayment(button);
     return;
   }
   if (button.dataset.action === "notify-expense") {

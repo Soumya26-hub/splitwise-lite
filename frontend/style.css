@@ -670,3 +670,12 @@ dialog h2 {
   color: var(--muted);
   cursor: default;
 }
+
+.invite-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.invite-actions .secondary-wide-button {
+  flex: 1;
+}

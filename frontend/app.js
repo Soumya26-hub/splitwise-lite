@@ -294,6 +294,24 @@ function renderBalances(data) {
 }
 
 // Share a friendly nudge: the phone's share sheet where supported, otherwise WhatsApp.
+// WhatsApp needs the number with its country code and no "+"; assume India (+91) for 10-digit numbers.
+function whatsappNumber(memberId) {
+  const member = currentGroup.members.find((item) => item.id === memberId);
+  if (!member || !member.phone) return null;
+  const digits = member.phone.replace(/\D/g, "");
+  return member.phone.startsWith("+") || digits.length > 10 ? digits : `91${digits}`;
+}
+
+// Message one person: straight into their WhatsApp chat when we know their number.
+function messageMember(memberId, message) {
+  const number = whatsappNumber(memberId);
+  if (!number) {
+    shareMessage(message);
+    return;
+  }
+  window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, "_blank", "noopener");
+}
+
 async function shareMessage(message) {
   if (navigator.share) {
     try {
@@ -310,7 +328,8 @@ async function shareMessage(message) {
 function sendReminder(button) {
   const debtor = memberName(Number(button.dataset.from));
   const creditor = memberName(Number(button.dataset.to));
-  shareMessage(
+  messageMember(
+    Number(button.dataset.from),
     `Hi ${debtor}, a reminder that you owe ${creditor} ${formatMoney(Number(button.dataset.amount))} for "${currentGroup.name}". Thanks!`,
   );
 }
@@ -556,11 +575,12 @@ async function respondToShare(button) {
     showToast(rejecting ? "Rejected, cost re-split" : "Share accepted");
     await refresh();
     if (rejecting) {
-      // There are no accounts, so tell the payer through the share sheet / WhatsApp.
+      // Tell the payer on WhatsApp, in their own chat when we have their number.
       const remaining = updated.shares
         .filter((share) => share.status !== "rejected")
         .map((share) => `${memberName(share.member_id)} ${formatMoney(share.amount)}`);
-      shareMessage(
+      messageMember(
+        updated.paid_by_id,
         `Hi ${memberName(updated.paid_by_id)}, ${memberName(memberId)} rejected "${updated.description}" in "${currentGroup.name}". It is now split as: ${remaining.join(", ")}.`,
       );
     }

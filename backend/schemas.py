@@ -84,6 +84,8 @@ class MemberRead(BaseModel):
     name: str
     # True once the person has signed in and joined the group.
     joined: bool = False
+    # Shown only to fellow group members, so reminders can open this person's WhatsApp chat.
+    phone: str | None = None
 
 
 class GroupCreate(BaseModel):

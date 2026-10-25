@@ -2,12 +2,13 @@ import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from . import crud
+from . import crud, services
 from .database import Base, SessionLocal, add_missing_columns, engine
 from .schemas import (
     ExpenseCreate,
@@ -46,6 +47,12 @@ app.add_middleware(
 )
 
 
+# Business-rule errors from services.py use the same {"detail": ...} body as HTTPException.
+@app.exception_handler(services.ServiceError)
+def service_error_handler(request: Request, error: services.ServiceError):
+    return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -68,15 +75,6 @@ def get_group_or_404(group_id: int, user=Depends(get_current_user), db: Session 
     if group is None or crud.my_member(group, user) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
     return group
-
-
-def ensure_members_in_group(group, member_ids):
-    group_member_ids = {member.id for member in group.members}
-    if not set(member_ids) <= group_member_ids:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Every member must belong to this group.",
-        )
 
 
 # Sign in (name + phone, no password)
@@ -111,15 +109,7 @@ def read_groups(user=Depends(get_current_user), db: Session = Depends(get_db)):
 
 @app.post("/groups/join/{invite_code}", response_model=GroupRead)
 def join_group(invite_code: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    group = crud.get_group_by_invite(db, invite_code)
-    if group is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This invite link is not valid.")
-    if crud.link_user_to_group(db, group, user) is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Someone else already joined as {user.name}. Sign in with a different name.",
-        )
-    return crud.group_to_dict(db, group, user)
+    return crud.group_to_dict(db, services.join_group(db, invite_code, user), user)
 
 
 @app.get("/groups/{group_id}", response_model=GroupRead)
@@ -136,45 +126,19 @@ def delete_group(group=Depends(get_group_or_404), db: Session = Depends(get_db))
 
 @app.post("/groups/{group_id}/members", response_model=MemberRead, status_code=status.HTTP_201_CREATED)
 def add_member(member_data: MemberCreate, group=Depends(get_group_or_404), db: Session = Depends(get_db)):
-    new_user = crud.get_user(db, member_data.user_id)
-    if new_user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    if crud.my_member(group, new_user) is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{new_user.name} is already in the group.")
-    member = crud.link_user_to_group(db, group, new_user)
-    if member is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Someone else named {new_user.name} is already in the group.",
-        )
-    return {"id": member.id, "name": member.name, "joined": True, "phone": new_user.phone}
+    return services.add_member(db, group, member_data)
 
 
 @app.delete("/groups/{group_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_member(member_id: int, group=Depends(get_group_or_404), db: Session = Depends(get_db)):
-    member = crud.get_member(db, group.id, member_id)
-    if member is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
-    # Removing someone with history would silently change everyone else's balance.
-    if crud.member_has_activity(db, member.id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This member has expenses or payments and cannot be removed.",
-        )
-    crud.delete_member(db, member)
+    services.remove_member(db, group, member_id)
 
 
 # Expenses
 
 @app.post("/groups/{group_id}/expenses", response_model=ExpenseRead, status_code=status.HTTP_201_CREATED)
 def create_expense(expense_data: ExpenseCreate, group=Depends(get_group_or_404), db: Session = Depends(get_db)):
-    if not group.members:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Add members to the group before adding expenses.",
-        )
-    ensure_members_in_group(group, [expense_data.paid_by_id, *(expense_data.split_between or [])])
-    return crud.expense_to_dict(crud.create_expense(db, group, expense_data))
+    return crud.expense_to_dict(services.create_expense(db, group, expense_data))
 
 
 @app.get("/groups/{group_id}/expenses", response_model=list[ExpenseRead])
@@ -184,10 +148,7 @@ def read_expenses(group=Depends(get_group_or_404), db: Session = Depends(get_db)
 
 @app.delete("/groups/{group_id}/expenses/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_expense(expense_id: int, group=Depends(get_group_or_404), db: Session = Depends(get_db)):
-    expense = crud.get_expense(db, group.id, expense_id)
-    if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
-    crud.delete_expense(db, expense)
+    services.delete_expense(db, group, expense_id)
 
 
 @app.post("/groups/{group_id}/expenses/{expense_id}/respond", response_model=ExpenseRead)
@@ -198,22 +159,7 @@ def respond_to_expense(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    expense = crud.get_expense(db, group.id, expense_id)
-    if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
-    # You can only answer for your own share.
-    my_member_id = crud.my_member(group, user).id
-    share = next((share for share in expense.shares if share.member_id == my_member_id), None)
-    if share is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="You are not in this split")
-    if share.status != "pending":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"This share was already {share.status}.")
-    if response.decision == "reject" and sum(s.status != "rejected" for s in expense.shares) == 1:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="The last person in a split cannot reject it. Delete the expense instead.",
-        )
-    return crud.expense_to_dict(crud.respond_to_share(db, expense, share, response.decision))
+    return crud.expense_to_dict(services.respond_to_expense(db, group, user, expense_id, response.decision))
 
 
 # Settlements (recorded repayments)
@@ -227,14 +173,7 @@ def create_settlement(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if settlement_data.from_member_id == settlement_data.to_member_id:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="A member cannot pay themselves.",
-        )
-    ensure_members_in_group(group, [settlement_data.from_member_id, settlement_data.to_member_id])
-    my_member_id = crud.my_member(group, user).id
-    return crud.settlement_to_dict(crud.create_settlement(db, group.id, settlement_data, my_member_id))
+    return crud.settlement_to_dict(services.create_settlement(db, group, user, settlement_data))
 
 
 @app.get("/groups/{group_id}/settlements", response_model=list[SettlementRead])
@@ -246,23 +185,12 @@ def read_settlements(group=Depends(get_group_or_404), db: Session = Depends(get_
 def confirm_settlement(
     settlement_id: int, group=Depends(get_group_or_404), user=Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    settlement = crud.get_settlement(db, group.id, settlement_id)
-    if settlement is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Settlement not found")
-    # Only the person who received the money can say it arrived.
-    if settlement.to_member_id != crud.my_member(group, user).id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Only the person who was paid can confirm this payment."
-        )
-    return crud.settlement_to_dict(crud.confirm_settlement(db, settlement))
+    return crud.settlement_to_dict(services.confirm_settlement(db, group, user, settlement_id))
 
 
 @app.delete("/groups/{group_id}/settlements/{settlement_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_settlement(settlement_id: int, group=Depends(get_group_or_404), db: Session = Depends(get_db)):
-    settlement = crud.get_settlement(db, group.id, settlement_id)
-    if settlement is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Settlement not found")
-    crud.delete_settlement(db, settlement)
+    services.delete_settlement(db, group, settlement_id)
 
 
 # Balances

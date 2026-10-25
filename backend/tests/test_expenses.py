@@ -158,3 +158,31 @@ def test_respond_validation(client, group):
     expense = add_expense(client, group).json()
     assert respond(client, group, expense, ben, "maybe").status_code == 422
     assert respond(client, group, {"id": 9999}, ben, "accept").status_code == 404
+
+
+def test_payment_counts_only_after_recipient_confirms(client, group):
+    asha, ben, chen = member_ids(group)
+    ben_headers = join_as(client, group, "Ben", "9000000002")
+    add_expense(client, group, amount=300, paid_by_id=asha)
+
+    url = f"/groups/{group['id']}/settlements"
+    payment = client.post(url, json={"from_member_id": ben, "to_member_id": asha, "amount": 100}, headers=ben_headers)
+    assert payment.json()["status"] == "pending"
+    balances, _ = balances_by_name(client, group)
+    assert balances["Ben"] == -100.0
+
+    # Ben cannot confirm his own payment; Asha, who was paid, can.
+    assert client.post(f"{url}/{payment.json()['id']}/confirm", headers=ben_headers).status_code == 403
+    confirmed = client.post(f"{url}/{payment.json()['id']}/confirm")
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "confirmed"
+    balances, _ = balances_by_name(client, group)
+    assert balances["Ben"] == 0.0
+
+
+def test_payment_recorded_by_recipient_is_confirmed(client, group):
+    asha, ben, _ = member_ids(group)
+    payment = client.post(
+        f"/groups/{group['id']}/settlements", json={"from_member_id": ben, "to_member_id": asha, "amount": 10}
+    )
+    assert payment.json()["status"] == "confirmed"

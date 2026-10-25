@@ -222,7 +222,10 @@ def respond_to_expense(
     "/groups/{group_id}/settlements", response_model=SettlementRead, status_code=status.HTTP_201_CREATED
 )
 def create_settlement(
-    settlement_data: SettlementCreate, group=Depends(get_group_or_404), db: Session = Depends(get_db)
+    settlement_data: SettlementCreate,
+    group=Depends(get_group_or_404),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     if settlement_data.from_member_id == settlement_data.to_member_id:
         raise HTTPException(
@@ -230,12 +233,28 @@ def create_settlement(
             detail="A member cannot pay themselves.",
         )
     ensure_members_in_group(group, [settlement_data.from_member_id, settlement_data.to_member_id])
-    return crud.settlement_to_dict(crud.create_settlement(db, group.id, settlement_data))
+    my_member_id = crud.my_member(group, user).id
+    return crud.settlement_to_dict(crud.create_settlement(db, group.id, settlement_data, my_member_id))
 
 
 @app.get("/groups/{group_id}/settlements", response_model=list[SettlementRead])
 def read_settlements(group=Depends(get_group_or_404), db: Session = Depends(get_db)):
     return [crud.settlement_to_dict(settlement) for settlement in crud.get_settlements(db, group.id)]
+
+
+@app.post("/groups/{group_id}/settlements/{settlement_id}/confirm", response_model=SettlementRead)
+def confirm_settlement(
+    settlement_id: int, group=Depends(get_group_or_404), user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    settlement = crud.get_settlement(db, group.id, settlement_id)
+    if settlement is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Settlement not found")
+    # Only the person who received the money can say it arrived.
+    if settlement.to_member_id != crud.my_member(group, user).id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only the person who was paid can confirm this payment."
+        )
+    return crud.settlement_to_dict(crud.confirm_settlement(db, settlement))
 
 
 @app.delete("/groups/{group_id}/settlements/{settlement_id}", status_code=status.HTTP_204_NO_CONTENT)

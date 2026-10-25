@@ -213,12 +213,14 @@ def delete_expense(db: Session, expense: Expense):
     db.commit()
 
 
-def create_settlement(db: Session, group_id: int, settlement_data: SettlementCreate):
+def create_settlement(db: Session, group_id: int, settlement_data: SettlementCreate, recorded_by_id: int):
     settlement = Settlement(
         group_id=group_id,
         from_member_id=settlement_data.from_member_id,
         to_member_id=settlement_data.to_member_id,
         amount_cents=amount_to_cents(settlement_data.amount),
+        # When the person who got the money records it, there is nothing left to confirm.
+        status="confirmed" if recorded_by_id == settlement_data.to_member_id else "pending",
     )
     db.add(settlement)
     db.commit()
@@ -243,6 +245,13 @@ def get_settlement(db: Session, group_id: int, settlement_id: int):
     )
 
 
+def confirm_settlement(db: Session, settlement: Settlement):
+    settlement.status = "confirmed"
+    db.commit()
+    db.refresh(settlement)
+    return settlement
+
+
 def delete_settlement(db: Session, settlement: Settlement):
     db.delete(settlement)
     db.commit()
@@ -257,7 +266,8 @@ def get_group_balances(db: Session, group: Group):
             (expense.paid_by_id, expense.amount_cents, {s.member_id: s.share_cents for s in expense.shares})
             for expense in expenses
         ),
-        ((s.from_member_id, s.to_member_id, s.amount_cents) for s in settlements),
+        # A payment only counts once the person paid has confirmed receiving it.
+        ((s.from_member_id, s.to_member_id, s.amount_cents) for s in settlements if s.status == "confirmed"),
     )
     return {
         "group_id": group.id,
@@ -294,4 +304,5 @@ def settlement_to_dict(settlement: Settlement):
         "to_member_id": settlement.to_member_id,
         "amount": cents_to_amount(settlement.amount_cents),
         "created_at": settlement.created_at,
+        "status": settlement.status,
     }

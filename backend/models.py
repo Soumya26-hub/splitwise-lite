@@ -109,5 +109,7 @@ class Settlement(Base):
     to_member_id = Column(Integer, ForeignKey("members.id"), nullable=False)
     amount_cents = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    # pending until the person who was paid confirms they received the money.
+    status = Column(String, nullable=False, default="pending")
 
     group = relationship("Group", back_populates="settlements")

@@ -675,3 +675,12 @@ dialog h2 {
   flex-basis: 100%;
   margin: 0;
 }
+
+.invite-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.invite-actions .secondary-wide-button {
+  flex: 1;
+}

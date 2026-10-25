@@ -10,7 +10,8 @@ const expenseAmount = document.querySelector("#expense-amount");
 const splitOptions = document.querySelector("#split-options");
 const splitPreview = document.querySelector("#split-preview");
 const activityList = document.querySelector("#activity-list");
-const memberForm = document.querySelector("#member-form");
+const memberSearch = document.querySelector("#member-search");
+const memberResults = document.querySelector("#member-results");
 const memberList = document.querySelector("#member-list");
 const groupDialog = document.querySelector("#group-dialog");
 const groupForm = document.querySelector("#group-form");
@@ -570,16 +571,51 @@ function renderMembers() {
   );
 }
 
-memberForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
+// Search signed-in people as you type; wait briefly so each keystroke isn't a request.
+let searchTimer = null;
+
+memberSearch.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const query = memberSearch.value.trim();
+  if (!query) {
+    memberResults.hidden = true;
+    return;
+  }
+  searchTimer = setTimeout(async () => {
+    try {
+      const users = await api(`/users/search?q=${encodeURIComponent(query)}`);
+      if (memberSearch.value.trim() !== query) return;
+      const memberNames = new Set(currentGroup.members.filter((m) => m.joined).map((m) => m.name.toLowerCase()));
+      const items = users.map((user) => {
+        const alreadyIn = memberNames.has(user.name.toLowerCase());
+        const item = createButton(alreadyIn ? `${user.name} · in group` : user.name, "add-user", user.id, "search-result");
+        item.disabled = alreadyIn;
+        const row = createElement("li");
+        row.append(item);
+        return row;
+      });
+      if (items.length === 0) {
+        items.push(createElement("li", "empty-state", "No one found. Share the invite link instead."));
+      }
+      memberResults.replaceChildren(...items);
+      memberResults.hidden = false;
+    } catch (error) {
+      showError(error.message);
+    }
+  }, 250);
+});
+
+memberResults.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action='add-user']");
+  if (!button) return;
   clearError();
-  const input = document.querySelector("#member-name");
   try {
     await api(`/groups/${currentGroup.id}/members`, {
       method: "POST",
-      body: JSON.stringify({ name: input.value }),
+      body: JSON.stringify({ user_id: Number(button.dataset.id) }),
     });
-    input.value = "";
+    memberSearch.value = "";
+    memberResults.hidden = true;
     showToast("Member added");
     await refresh();
   } catch (error) {
@@ -629,25 +665,19 @@ document.querySelector("#group-cancel").addEventListener("click", () => groupDia
 groupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearError();
-  const members = document
-    .querySelector("#group-members")
-    .value.split(",")
-    .map((name) => name.trim())
-    .filter(Boolean);
   try {
     const group = await api("/groups/", {
       method: "POST",
       body: JSON.stringify({
         name: document.querySelector("#group-name").value,
         currency: document.querySelector("#group-currency").value.trim(),
-        members,
       }),
     });
     groupForm.reset();
     groupDialog.close();
     showToast("Group created");
     await loadGroups(group.id);
-    showTab(members.length ? "add" : "members");
+    showTab("members");
   } catch (error) {
     showError(error.message);
     groupDialog.close();

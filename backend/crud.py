@@ -103,7 +103,12 @@ def group_to_dict(db: Session, group: Group, user: User):
         "invite_code": group.invite_code,
         "my_member_id": my_member(group, user).id,
         "members": [
-            {"id": member.id, "name": member.name, "joined": member.user_id is not None}
+            {
+                "id": member.id,
+                "name": member.name,
+                "joined": member.user_id is not None,
+                "phone": member.user.phone if member.user else None,
+            }
             for member in group.members
         ],
     }

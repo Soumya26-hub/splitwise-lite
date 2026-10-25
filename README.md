@@ -160,10 +160,25 @@ backend/algorithms.py
   linear two-pointer pass. Each payment fully clears at least one person, so it
   produces at most n - 1 payments.
 
+## Architecture
+
+The backend is split into layers, each in its own module:
+
+- `main.py`: HTTP routes. Each route checks who is signed in, calls one function and returns the result.
+- `schemas.py`: Pydantic request and response models, including input validation.
+- `services.py`: business rules (who can confirm a payment, who can reject a share, which members can be removed).
+  Broken rules raise `NotFound`, `Forbidden`, `Conflict` or `InvalidRequest`, which `main.py` turns into 404/403/409/422 responses.
+- `crud.py`: database reads and writes through SQLAlchemy.
+- `models.py`: SQLAlchemy tables (users, groups, members, expenses, expense shares, settlements).
+- `algorithms.py`: pure functions for splitting, balances and debt simplification, with no database access.
+
+The tests run on every push and pull request through GitHub Actions (`.github/workflows/tests.yml`).
+
 ## Project Structure
 
 ```text
 splitwise-lite/
+├── .github/workflows/tests.yml
 ├── backend/
 │   ├── algorithms.py
 │   ├── crud.py
@@ -173,6 +188,7 @@ splitwise-lite/
 │   ├── requirements.txt
 │   ├── requirements-dev.txt
 │   ├── schemas.py
+│   ├── services.py
 │   └── tests/
 ├── frontend/
 │   ├── icons/

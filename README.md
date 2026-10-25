@@ -15,7 +15,7 @@ installs on a phone as a Progressive Web App (PWA).
 - Live balances: who gets money back and who owes
 - "Settle up" suggestions using a debt-simplification algorithm
 - Record repayments with one tap ("Mark paid")
-- "Remind" button shares a payment reminder via the phone's share sheet, or WhatsApp on desktop
+- "Remind" opens the member's own WhatsApp chat with the reminder filled in (falls back to the share sheet if they have not signed in)
 - Each person accepts or rejects their own share of a new expense; a rejection
   re-splits the cost between the rest and offers to message the payer
 - Activity feed shows who is in each split, with delete, which recalculates balances
@@ -118,6 +118,7 @@ returned by `/auth/signin`, and you only see groups you are a member of.
 POST   /auth/signin                              {name, phone} -> {token, user}
 GET    /auth/me
 GET    /users/search?q=<name>                    signed-in people (id and name only)
+                                                 (group responses include members' phone numbers, visible to fellow members only)
 POST   /groups/join/{invite_code}                join via invite link (claims the member with your name)
 
 POST   /groups/                                  {name, currency?, members?}

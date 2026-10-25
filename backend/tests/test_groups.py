@@ -124,3 +124,11 @@ def test_delete_group_with_history(client):
     )
     assert client.delete(f"/groups/{group['id']}").status_code == 204
     assert client.get("/groups/").json() == []
+
+
+def test_group_members_include_phone_once_joined(client):
+    group = create_group(client).json()
+    assert [member["phone"] for member in group["members"]] == ["9000000001", None, None]
+    ben = sign_in(client, "Ben", "+919000000002")
+    joined = client.post(f"/groups/join/{group['invite_code']}", headers=ben).json()
+    assert joined["members"][1]["phone"] == "+919000000002"

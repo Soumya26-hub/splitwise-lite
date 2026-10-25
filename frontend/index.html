@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="description" content="Split shared expenses with friends and see who owes whom.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Splitwise Lite">
+  <title>Splitwise Lite</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="signin-screen" class="signin-screen" hidden>
+    <form id="signin-form" class="panel">
+      <p class="eyebrow">Splitwise Lite</p>
+      <h1>Sign in</h1>
+      <p class="hint">Use the name your friends know you by. Your phone number keeps your account the same on every device.</p>
+      <label>
+        Your name
+        <input id="signin-name" type="text" autocomplete="name" required>
+      </label>
+      <label>
+        Phone number
+        <input id="signin-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210" required>
+      </label>
+      <p id="signin-error" class="signin-error" role="alert"></p>
+      <button type="submit" class="primary-button">Continue</button>
+    </form>
+  </section>
+
+  <header class="app-header">
+    <div class="header-row">
+      <p class="eyebrow">Splitwise Lite · <span id="user-name"></span> <button id="signout-btn" class="link-button" type="button">Sign out</button></p>
+      <button id="new-group-btn" class="text-button" type="button">+ New group</button>
+    </div>
+    <label class="group-picker">
+      <span class="visually-hidden">Current group</span>
+      <select id="group-select"></select>
+    </label>
+  </header>
+
+  <div id="error-banner" class="error-banner" role="alert"></div>
+
+  <main class="app-main">
+    <!-- Balances tab -->
+    <section id="tab-balances" class="tab-panel" aria-labelledby="balances-heading">
+      <div class="summary-card">
+        <p>Total group spending</p>
+        <p id="total-spent" class="total-amount">-</p>
+      </div>
+
+      <h2 id="balances-heading">Balances</h2>
+      <ul id="balance-list" class="card-list"></ul>
+
+      <h2>Settle up</h2>
+      <p class="hint">The fewest payments that clear every debt.</p>
+      <ul id="settle-list" class="card-list"></ul>
+    </section>
+
+    <!-- Add expense tab -->
+    <section id="tab-add" class="tab-panel" aria-labelledby="add-heading" hidden>
+      <h2 id="add-heading">Add an expense</h2>
+      <form id="expense-form" class="panel">
+        <label>
+          What was it for?
+          <input id="expense-description" type="text" placeholder="e.g. Dinner" required>
+        </label>
+        <label>
+          Amount
+          <input id="expense-amount" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="0.00" required>
+        </label>
+        <label>
+          Paid by
+          <select id="expense-paid-by" required></select>
+        </label>
+        <fieldset>
+          <legend>Split equally between</legend>
+          <div id="split-options" class="split-options"></div>
+        </fieldset>
+        <p id="split-preview" class="hint"></p>
+        <button type="submit" class="primary-button">Add expense</button>
+      </form>
+    </section>
+
+    <!-- Activity tab -->
+    <section id="tab-activity" class="tab-panel" aria-labelledby="activity-heading" hidden>
+      <h2 id="activity-heading">Activity</h2>
+      <ul id="activity-list" class="card-list"></ul>
+    </section>
+
+    <!-- Members tab -->
+    <section id="tab-members" class="tab-panel" aria-labelledby="members-heading" hidden>
+      <h2 id="members-heading">Members</h2>
+      <form id="member-form" class="inline-form">
+        <label class="visually-hidden" for="member-name">New member name</label>
+        <input id="member-name" type="text" placeholder="Add a friend" required>
+        <button type="submit" class="primary-button">Add</button>
+      </form>
+      <p class="hint">Friends join by opening the invite link and signing in with the same name you added them as.</p>
+      <ul id="member-list" class="card-list"></ul>
+      <button id="share-group-btn" class="secondary-wide-button" type="button">📣 Share invite link</button>
+      <button id="delete-group-btn" class="danger-button" type="button">Delete this group</button>
+    </section>
+  </main>
+
+  <p id="toast" class="toast" role="status" aria-live="polite"></p>
+
+  <nav class="tab-bar" aria-label="Sections">
+    <button type="button" class="tab-button active" data-tab="balances"><span aria-hidden="true">⚖️</span>Balances</button>
+    <button type="button" class="tab-button" data-tab="add"><span aria-hidden="true">➕</span>Add</button>
+    <button type="button" class="tab-button" data-tab="activity"><span aria-hidden="true">🧾</span>Activity</button>
+    <button type="button" class="tab-button" data-tab="members"><span aria-hidden="true">👥</span>Members</button>
+  </nav>
+
+  <dialog id="group-dialog">
+    <form id="group-form" method="dialog">
+      <h2>New group</h2>
+      <label>
+        Group name
+        <input id="group-name" type="text" placeholder="e.g. Flatmates" required>
+      </label>
+      <label>
+        Members (comma separated)
+        <input id="group-members" type="text" placeholder="Asha, Ben, Chen">
+      </label>
+      <label>
+        Currency symbol
+        <input id="group-currency" type="text" maxlength="3" value="₹" required>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" id="group-cancel" class="text-button">Cancel</button>
+        <button type="submit" class="primary-button">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

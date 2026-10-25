@@ -1,4 +1,6 @@
+import logging
 import mimetypes
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -47,9 +49,28 @@ app.add_middleware(
 )
 
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logger = logging.getLogger("splitwise")
+
+
+# One log line per request, so slow or failing calls show up in the server logs.
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("%s %s failed", request.method, request.url.path)
+        raise
+    duration_ms = (time.perf_counter() - start) * 1000
+    logger.info("%s %s %s %.1fms", request.method, request.url.path, response.status_code, duration_ms)
+    return response
+
+
 # Business-rule errors from services.py use the same {"detail": ...} body as HTTPException.
 @app.exception_handler(services.ServiceError)
 def service_error_handler(request: Request, error: services.ServiceError):
+    logger.warning("%s %s rejected: %s", request.method, request.url.path, error.detail)
     return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
 
 

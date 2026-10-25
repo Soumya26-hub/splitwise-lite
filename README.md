@@ -31,6 +31,7 @@ installs on a phone as a Progressive Web App (PWA).
 - SQLite
 - Pydantic
 - PostgreSQL (optional, for hosting)
+- Docker
 - HTML, CSS, JavaScript (PWA: web manifest + service worker)
 
 ## Setup
@@ -80,6 +81,16 @@ python -m pytest backend/tests
 ```
 
 Tests use a temporary database and never touch `splitwise.db`.
+
+### Running with Docker
+
+```bash
+docker build -t splitwise-lite .
+docker run -p 8000:8000 splitwise-lite
+```
+
+Open `http://localhost:8000` for the app and `http://localhost:8000/docs` for the Swagger API docs.
+Data is kept in SQLite inside the container; pass `-e DATABASE_URL=...` to use Postgres instead.
 
 ## Using it on your phone
 
@@ -172,7 +183,19 @@ The backend is split into layers, each in its own module:
 - `models.py`: SQLAlchemy tables (users, groups, members, expenses, expense shares, settlements).
 - `algorithms.py`: pure functions for splitting, balances and debt simplification, with no database access.
 
-The tests run on every push and pull request through GitHub Actions (`.github/workflows/tests.yml`).
+Database details:
+
+- Foreign keys used for lookups (`members.group_id`, `expenses.group_id`, `expense_shares.expense_id`,
+  `settlements.group_id`) are indexed, along with the unique `phone`, `token` and `invite_code` columns.
+- The expense list loads all shares in one extra query (`selectinload`) instead of one query per expense.
+  `test_queries_and_logging.py` checks that the number of queries stays the same as expenses are added.
+- Each write commits once, so an expense and its shares, or a re-split after a rejection, are saved together or not at all.
+
+Logging: every request is logged with its method, path, status code and duration. Broken business rules are
+logged as warnings and unexpected errors with a full traceback.
+
+GitHub Actions (`.github/workflows/tests.yml`) runs the tests on every push and pull request, and also builds
+the Docker image and checks that the container answers.
 
 ## Project Structure
 
@@ -197,6 +220,7 @@ splitwise-lite/
 │   ├── style.css
 │   ├── manifest.webmanifest
 │   └── service-worker.js
+├── Dockerfile
 ├── render.yaml
 ├── .env.example
 ├── .gitignore

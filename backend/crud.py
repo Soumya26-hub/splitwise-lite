@@ -1,5 +1,5 @@
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .algorithms import compute_balances, simplify_debts, split_equally
 from .models import Expense, ExpenseShare, Group, Member, Settlement, User, new_secret
@@ -179,9 +179,11 @@ def create_expense(db: Session, group: Group, expense_data: ExpenseCreate):
 
 
 def get_expenses(db: Session, group_id: int):
-    # Newest first, which is how the app's activity list shows them.
+    # Newest first, which is how the app's activity list shows them. Shares are loaded
+    # in one extra query instead of one query per expense (the N+1 problem).
     return (
         db.query(Expense)
+        .options(selectinload(Expense.shares))
         .filter(Expense.group_id == group_id)
         .order_by(Expense.created_at.desc(), Expense.id.desc())
         .all()

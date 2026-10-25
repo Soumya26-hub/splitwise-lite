@@ -65,13 +65,18 @@ class SignInResult(BaseModel):
     user: UserRead
 
 
-class MemberCreate(BaseModel):
+class UserSummary(BaseModel):
+    """What other people see about a user: never their phone number."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
     name: str
 
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        return normalize_name(value)
+
+class MemberCreate(BaseModel):
+    # Only people who have signed in can be added, so made-up names cannot sneak in.
+    user_id: int
 
 
 class MemberRead(BaseModel):

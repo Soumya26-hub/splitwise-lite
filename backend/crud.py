@@ -24,6 +24,20 @@ def sign_in(db: Session, sign_in_data: SignIn):
     return user
 
 
+def search_users(db: Session, query: str, limit: int = 10):
+    return (
+        db.query(User)
+        .filter(User.name.ilike(f"%{query.strip()}%"))
+        .order_by(User.name, User.id)
+        .limit(limit)
+        .all()
+    )
+
+
+def get_user(db: Session, user_id: int):
+    return db.query(User).filter(User.id == user_id).first()
+
+
 def get_user_by_token(db: Session, token: str):
     return db.query(User).filter(User.token == token).first()
 
@@ -115,23 +129,6 @@ def delete_group(db: Session, group_id: int):
 
 def get_member(db: Session, group_id: int, member_id: int):
     return db.query(Member).filter(Member.group_id == group_id, Member.id == member_id).first()
-
-
-def member_name_taken(db: Session, group_id: int, name: str):
-    return (
-        db.query(Member)
-        .filter(Member.group_id == group_id, func.lower(Member.name) == name.lower())
-        .first()
-        is not None
-    )
-
-
-def add_member(db: Session, group_id: int, name: str):
-    member = Member(group_id=group_id, name=name)
-    db.add(member)
-    db.commit()
-    db.refresh(member)
-    return member
 
 
 def member_has_activity(db: Session, member_id: int):

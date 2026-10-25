@@ -71,10 +71,32 @@ def test_invite_link_adds_new_member_and_rejects_name_clash(client):
     assert client.post("/groups/join/not-a-code", headers=dev).status_code == 404
 
 
-def test_add_member_rejects_duplicate_name(client):
+def test_search_users_hides_phone_numbers(client):
+    sign_in(client, "Ben Kumar", "9000000002")
+    sign_in(client, "Bina", "9000000003")
+    results = client.get("/users/search", params={"q": "bi"}).json()
+    assert results == [{"id": 3, "name": "Bina"}]
+    assert [user["name"] for user in client.get("/users/search", params={"q": "B"}).json()] == ["Ben Kumar", "Bina"]
+    assert client.get("/users/search", params={"q": ""}).status_code == 422
+
+
+def test_add_signed_in_user_as_member(client):
+    group = create_group(client, members=[]).json()
+    ben_id = client.post("/auth/signin", json={"name": "Ben", "phone": "9000000002"}).json()["user"]["id"]
+    response = client.post(f"/groups/{group['id']}/members", json={"user_id": ben_id})
+    assert response.status_code == 201
+    assert response.json()["joined"] is True
+    assert client.post(f"/groups/{group['id']}/members", json={"user_id": ben_id}).status_code == 409
+    assert client.post(f"/groups/{group['id']}/members", json={"user_id": 9999}).status_code == 404
+    # Made-up names can no longer be added.
+    assert client.post(f"/groups/{group['id']}/members", json={"name": "Dummy"}).status_code == 422
+
+
+def test_adding_user_claims_unjoined_member_with_same_name(client):
     group = create_group(client).json()
-    assert client.post(f"/groups/{group['id']}/members", json={"name": "Dev"}).status_code == 201
-    assert client.post(f"/groups/{group['id']}/members", json={"name": " ben "}).status_code == 409
+    ben_id = client.post("/auth/signin", json={"name": "ben", "phone": "9000000002"}).json()["user"]["id"]
+    member = client.post(f"/groups/{group['id']}/members", json={"user_id": ben_id}).json()
+    assert member["id"] == group["members"][1]["id"]
 
 
 def test_member_with_activity_cannot_be_removed(client):

@@ -8,7 +8,8 @@ installs on a phone as a Progressive Web App (PWA).
 ## Features
 
 - Sign in with your name and phone number (no password), on any device
-- Invite friends to a group with a link; they join by signing in
+- Invite friends to a group with a link, or add people who have signed in by
+  searching their name (made-up names cannot be added)
 - Create groups (trips, flatmates, events) with members and a currency symbol
 - Add expenses paid by one person and split equally between everyone or a chosen few
 - Live balances: who gets money back and who owes
@@ -116,6 +117,7 @@ returned by `/auth/signin`, and you only see groups you are a member of.
 ```text
 POST   /auth/signin                              {name, phone} -> {token, user}
 GET    /auth/me
+GET    /users/search?q=<name>                    signed-in people (id and name only)
 POST   /groups/join/{invite_code}                join via invite link (claims the member with your name)
 
 POST   /groups/                                  {name, currency?, members?}
@@ -123,7 +125,7 @@ GET    /groups/
 GET    /groups/{group_id}
 DELETE /groups/{group_id}
 
-POST   /groups/{group_id}/members                {name}
+POST   /groups/{group_id}/members                {user_id}
 DELETE /groups/{group_id}/members/{member_id}    (409 if they have expenses or payments)
 
 POST   /groups/{group_id}/expenses               {description, amount, paid_by_id, split_between?}

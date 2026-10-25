@@ -2,7 +2,7 @@ import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from .schemas import (
     SignIn,
     SignInResult,
     UserRead,
+    UserSummary,
 )
 
 
@@ -91,6 +92,11 @@ def read_me(user=Depends(get_current_user)):
     return user
 
 
+@app.get("/users/search", response_model=list[UserSummary])
+def search_users(q: str = Query(min_length=1), user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return crud.search_users(db, q)
+
+
 # Groups
 
 @app.post("/groups/", response_model=GroupRead, status_code=status.HTTP_201_CREATED)
@@ -130,13 +136,18 @@ def delete_group(group=Depends(get_group_or_404), db: Session = Depends(get_db))
 
 @app.post("/groups/{group_id}/members", response_model=MemberRead, status_code=status.HTTP_201_CREATED)
 def add_member(member_data: MemberCreate, group=Depends(get_group_or_404), db: Session = Depends(get_db)):
-    if crud.member_name_taken(db, group.id, member_data.name):
+    new_user = crud.get_user(db, member_data.user_id)
+    if new_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if crud.my_member(group, new_user) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{new_user.name} is already in the group.")
+    member = crud.link_user_to_group(db, group, new_user)
+    if member is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Someone with this name is already in the group.",
+            detail=f"Someone else named {new_user.name} is already in the group.",
         )
-    member = crud.add_member(db, group.id, member_data.name)
-    return {"id": member.id, "name": member.name, "joined": False}
+    return {"id": member.id, "name": member.name, "joined": True}
 
 
 @app.delete("/groups/{group_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)

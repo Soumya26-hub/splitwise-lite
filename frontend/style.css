@@ -671,6 +671,11 @@ dialog h2 {
   cursor: default;
 }
 
+.settle-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .invite-actions {
   display: flex;
   gap: 0.5rem;

@@ -629,3 +629,44 @@ dialog h2 {
   background: #fef3c7;
   color: #92400e;
 }
+
+/* Member search */
+
+.member-search {
+  position: relative;
+  margin-bottom: 0.5rem;
+}
+
+.search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 5;
+  margin: 0;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(31, 41, 55, 0.12);
+  list-style: none;
+}
+
+.search-result {
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+
+.search-result:hover:not(:disabled) {
+  background: var(--brand-soft);
+}
+
+.search-result:disabled {
+  color: var(--muted);
+  cursor: default;
+}

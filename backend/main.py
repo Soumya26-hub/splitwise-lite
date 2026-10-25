@@ -147,7 +147,7 @@ def add_member(member_data: MemberCreate, group=Depends(get_group_or_404), db: S
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Someone else named {new_user.name} is already in the group.",
         )
-    return {"id": member.id, "name": member.name, "joined": True}
+    return {"id": member.id, "name": member.name, "joined": True, "phone": new_user.phone}
 
 
 @app.delete("/groups/{group_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)

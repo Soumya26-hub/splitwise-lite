@@ -52,7 +52,7 @@ class Member(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False, index=True)
     # Set once the person signs in and joins; until then the member is just a name.
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
@@ -70,7 +70,7 @@ class Expense(Base):
     description = Column(String, nullable=False)
     # Money is stored as integer cents (paise) so splits never suffer float rounding.
     amount_cents = Column(Integer, nullable=False)
-    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False, index=True)
     paid_by_id = Column(Integer, ForeignKey("members.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
@@ -85,7 +85,7 @@ class ExpenseShare(Base):
     __tablename__ = "expense_shares"
 
     id = Column(Integer, primary_key=True, index=True)
-    expense_id = Column(Integer, ForeignKey("expenses.id"), nullable=False)
+    expense_id = Column(Integer, ForeignKey("expenses.id"), nullable=False, index=True)
     member_id = Column(Integer, ForeignKey("members.id"), nullable=False)
     share_cents = Column(Integer, nullable=False)
     # pending -> accepted or rejected. A rejected share is kept at 0 so the app can show who said no.
@@ -104,7 +104,7 @@ class Settlement(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False, index=True)
     from_member_id = Column(Integer, ForeignKey("members.id"), nullable=False)
     to_member_id = Column(Integer, ForeignKey("members.id"), nullable=False)
     amount_cents = Column(Integer, nullable=False)

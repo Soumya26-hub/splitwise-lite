@@ -15,3 +15,15 @@ jobs:
           python-version: "3.12"
       - run: pip install -r backend/requirements-dev.txt
       - run: python -m pytest backend/tests
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t splitwise-lite .
+      # Start the container and check the API answers.
+      - run: |
+          docker run -d --name app -p 8000:8000 splitwise-lite
+          for attempt in $(seq 1 30); do curl -sf http://localhost:8000/openapi.json > /dev/null && break; sleep 1; done
+          curl -sf http://localhost:8000/openapi.json > /dev/null
+          docker logs app

@@ -636,6 +636,17 @@ memberList.addEventListener("click", async (event) => {
   }
 });
 
+document.querySelector("#copy-link-btn").addEventListener("click", async () => {
+  if (!currentGroup) return;
+  try {
+    await navigator.clipboard.writeText(inviteLink());
+    showToast("Invite link copied");
+  } catch {
+    // Clipboard access needs HTTPS (or localhost); let the user copy it by hand instead.
+    prompt("Copy this invite link:", inviteLink());
+  }
+});
+
 document.querySelector("#share-group-btn").addEventListener("click", () => {
   if (!currentGroup) return;
   const names = currentGroup.members.map((member) => member.name).join(", ");

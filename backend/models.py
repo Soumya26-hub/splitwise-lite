@@ -57,6 +57,7 @@ class Member(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     group = relationship("Group", back_populates="members")
+    user = relationship("User")
 
 
 class Expense(Base):
